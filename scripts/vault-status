@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# vault-status - show mount status for gocryptfs vault
+
+VAULT_DIR="${VAULT_DIR:-$HOME/Vault}"
+ENCRYPTED_DIR="${ENCRYPTED_DIR:-$HOME/Vault.encrypted}"
+
+if mountpoint -q "$VAULT_DIR"; then
+  echo "✅ Vault is mounted"
+  echo "🔓 Decrypted path : $VAULT_DIR"
+  echo "🔒 Encrypted path : $ENCRYPTED_DIR"
+else
+  echo "🔒 Vault is not mounted"
+  echo "💾 Encrypted data : $ENCRYPTED_DIR"
+fi

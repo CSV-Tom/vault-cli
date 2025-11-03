@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# vault-toggle - Mount/Unmount script for gocryptfs vault
+# Usage: vault toggle
+
+VAULT_DIR="${VAULT_DIR:-$HOME/Vault}"
+ENCRYPTED_DIR="${ENCRYPTED_DIR:-$HOME/Vault.encrypted}"
+
+# --- Helper functions --------------------------------------------------------
+fail()    { echo "❌ $*" >&2; exit 1; }
+info()    { echo "ℹ️  $*"; }
+success() { echo "✅ $*"; }
+
+trap 'fail "Unexpected error (line ${LINENO})."' ERR
+
+require_cmd() { command -v "$1" >/dev/null 2>&1 || fail "Missing dependency: $1"; }
+
+pick_fusermount() {
+  if command -v fusermount >/dev/null 2>&1; then
+    echo "fusermount"
+  elif command -v fusermount3 >/dev/null 2>&1; then
+    echo "fusermount3"
+  else
+    fail "Neither 'fusermount' nor 'fusermount3' is installed."
+  fi
+}
+
+# --- Pre-checks --------------------------------------------------------------
+require_cmd gocryptfs
+FUSERMOUNT_BIN="$(pick_fusermount)"
+require_cmd mountpoint
+
+[ -d "${ENCRYPTED_DIR}" ] || fail "Encrypted directory not found: ${ENCRYPTED_DIR}"
+if [ ! -d "${VAULT_DIR}" ]; then
+  info "Creating mount directory: ${VAULT_DIR}"
+  mkdir -p "${VAULT_DIR}" || fail "Could not create ${VAULT_DIR}"
+fi
+
+# --- Main --------------------------------------------------------------------
+if mountpoint -q "${VAULT_DIR}"; then
+  info "🔒 Unmounting Vault at → ${VAULT_DIR}"
+  if "${FUSERMOUNT_BIN}" -u -- "${VAULT_DIR}"; then
+    success "Vault successfully unmounted from → ${VAULT_DIR}"
+  else
+    info "Unmount failed; attempting lazy unmount (-z)..."
+    if "${FUSERMOUNT_BIN}" -uz -- "${VAULT_DIR}"; then
+      success "Vault lazily unmounted (resources were busy) → ${VAULT_DIR}"
+    else
+      fail "Failed to unmount vault at → ${VAULT_DIR}. It might be in use or locked."
+    fi
+  fi
+else
+  if [ -n "$(ls -A -- "${VAULT_DIR}")" ]; then
+    fail "Mount directory is not empty and not a mountpoint: ${VAULT_DIR}"
+  fi
+
+  info "🔓 Mounting Vault..."
+  info "Encrypted: ${ENCRYPTED_DIR}"
+  info "Mountpoint: ${VAULT_DIR}"
+  if gocryptfs -- "${ENCRYPTED_DIR}" "${VAULT_DIR}"; then
+    if mountpoint -q "${VAULT_DIR}"; then
+      success "Vault successfully mounted at → ${VAULT_DIR}"
+    else
+      fail "Mount command returned success, but ${VAULT_DIR} is not a mountpoint."
+    fi
+  else
+    fail "Failed to mount vault from ${ENCRYPTED_DIR} to ${VAULT_DIR}."
+  fi
+fi

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# vault - unified CLI for gocryptfs vault management
+#
+# Usage:
+#   vault install          # install vault bundle system-wide
+#   vault toggle           # mount or unmount the vault
+#   vault sync [message]   # commit and push encrypted changes
+#   vault status           # show vault mount status
+#   vault uninstall        # remove installed vault bundle
+#   vault help             # show usage
+
+COMMAND="${1:-}"
+shift || true
+
+fail() { echo "❌ $*" >&2; exit 1; }
+info() { echo "ℹ️  $*"; }
+
+# ---- Where to look for subcommand executables -------------------------------
+SUBCOMMAND_PREFIX="vault-"
+SUBCOMMAND_DIRS=(
+  "$(dirname "$0")/scripts" # local development (new structure)
+  "/usr/local/share/vault"  # installed bundle location
+  "/usr/local/bin"          # legacy
+  "$HOME/bin"               # user-local
+  "$(dirname "$0")"         # fallback: same directory
+)
+
+find_subcommand() {
+  local cmd="$1"
+  for dir in "${SUBCOMMAND_DIRS[@]}"; do
+    local path="${dir}/${SUBCOMMAND_PREFIX}${cmd}"
+    if [ -x "$path" ]; then
+      echo "$path"
+      return 0
+    fi
+  done
+  return 1
+}
+
+show_help() {
+  cat <<EOF
+vault - unified CLI for encrypted vault management
+
+Usage:
+  vault <command> [args...]
+
+Commands:
+  install     Install vault bundle system-wide
+  toggle      Mount or unmount the encrypted vault
+  sync        Commit and push encrypted changes
+  status      Show vault mount status
+  uninstall   Remove installed vault bundle
+  help        Show this help text
+
+Examples:
+  vault install
+  vault toggle
+  vault sync "Update notes"
+  vault status
+  vault uninstall
+EOF
+}
+
+run_install() {
+  # Execute the local installer from the project root
+  local here; here="$(cd -- "$(dirname -- "$0")" && pwd -P)"
+  local installer="${here}/scripts/vault-install"
+  [ -x "$installer" ] || fail "Installer not found or not executable: ${installer}"
+  info "Running installer… (sudo required)"
+  # Change to project root and run installer from there
+  cd "$here"
+  sudo "$installer"
+}
+
+run_uninstall() {
+  local uninstaller="/usr/local/share/vault/vault-uninstall"
+  [ -x "$uninstaller" ] || fail "Uninstall script not found: ${uninstaller}"
+  info "Running uninstaller… (sudo required)"
+  sudo "$uninstaller"
+}
+
+case "${COMMAND}" in
+  ""|-h|--help|help)
+    show_help
+    exit 0
+    ;;
+  install)
+    run_install
+    exit 0
+    ;;
+  uninstall)
+    run_uninstall
+    exit 0
+    ;;
+esac
+
+# Delegate to subcommand (toggle, sync, status, …)
+SUBCMD_PATH="$(find_subcommand "$COMMAND")" || fail "Unknown command: '${COMMAND}'"
+exec "$SUBCMD_PATH" "$@"

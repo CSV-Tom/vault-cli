@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# vault-install – install the vault CLI bundle
+# Copies wrapper + subcommands to /usr/local/share/vault
+# and creates a single symlink /usr/local/bin/vault.
+#
+# Usage:
+#   vault install  # (or sudo ./scripts/vault-install)
+
+SHARE_DIR="/usr/local/share/vault"
+BIN_LINK="/usr/local/bin/vault"
+COMPLETION_DIR="/usr/local/share/bash-completion/completions"
+COMPLETION_SRC="completions/vault.bash"
+
+REQUIRED=(vault vault-toggle vault-sync vault-uninstall)
+OPTIONAL=(vault-status)
+
+fail()    { echo "❌ $*" >&2; exit 1; }
+info()    { echo "ℹ️  $*"; }
+success() { echo "✅ $*"; }
+
+[ "$(id -u)" -eq 0 ] || fail "Please run with sudo or as root."
+
+# Resolve source paths - expect to run from project root
+resolve_src() {
+  local base="$1"
+  
+  # Main vault script is in root
+  if [ "$base" = "vault" ]; then
+    if [ -f "./vault" ]; then echo "./vault"; return 0; fi
+    return 1
+  fi
+  
+  # Subcommands are in scripts/ directory
+  if [ -f "./scripts/${base}" ]; then echo "./scripts/${base}"; return 0; fi
+  if [ -f "./scripts/${base}.sh" ]; then echo "./scripts/${base}.sh"; return 0; fi
+  
+  return 1
+}
+
+info "Installing vault CLI bundle to ${SHARE_DIR} …"
+install -d -m 0755 "${SHARE_DIR}"
+
+for name in "${REQUIRED[@]}"; do
+  src="$(resolve_src "${name}")" || fail "Missing script: ${name} (./${name}[.sh])"
+  [ -r "${src}" ] || fail "Not readable: ${src}"
+  info "→ ${src} → ${SHARE_DIR}/${name}"
+  install -m 0755 "${src}" "${SHARE_DIR}/${name}"
+done
+
+for name in "${OPTIONAL[@]}"; do
+  if src="$(resolve_src "${name}")"; then
+    [ -r "${src}" ] || fail "Not readable: ${src}"
+    info "→ ${src} → ${SHARE_DIR}/${name}"
+    install -m 0755 "${src}" "${SHARE_DIR}/${name}"
+  fi
+done
+
+info "Linking wrapper → ${BIN_LINK}"
+ln -sf "${SHARE_DIR}/vault" "${BIN_LINK}"
+
+# Install bash completion if available
+if [ -f "${COMPLETION_SRC}" ]; then
+  info "Installing bash completion…"
+  install -d -m 0755 "${COMPLETION_DIR}"
+  install -m 0644 "${COMPLETION_SRC}" "${COMPLETION_DIR}/vault"
+  success "Bash completion installed → ${COMPLETION_DIR}/vault"
+else
+  info "Bash completion not found (${COMPLETION_SRC}), skipping"
+fi
+
+command -v vault >/dev/null 2>&1 || fail "vault not found in PATH after installation."
+
+success "Installation complete."
+success "Vault CLI successfully installed. Run 'vault help' for usage information."
+if [ -f "${COMPLETION_DIR}/vault" ]; then
+  success "Restart your shell or run 'source ${COMPLETION_DIR}/vault' to enable tab completion"
+fi

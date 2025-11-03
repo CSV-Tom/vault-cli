@@ -1,0 +1,13 @@
+[Unit]
+Description=Mount gocryptfs Vault
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/gocryptfs %h/Vault.encrypted %h/Vault
+ExecStop=/bin/fusermount -u %h/Vault
+Restart=no
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

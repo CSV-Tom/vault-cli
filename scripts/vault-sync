@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Commit & push changes from the encrypted vault repo.
+# Default repo path: $HOME/Vault.encrypted (override with ENCRYPTED_DIR)
+# Usage:
+#   vault sync                  # auto message with timestamp
+#   vault sync "Your message"   # custom message
+#
+# Optional env:
+#   ENCRYPTED_DIR=...                # path to encrypted repo
+#   GIT_REMOTE_URL=...               # set 'origin' if missing
+#   GIT_USER_NAME=..., GIT_USER_EMAIL=...   # set identity if missing
+#   GIT_SIGN=true                    # use -S to sign commits (requires GPG setup)
+
+ENCRYPTED_DIR="${ENCRYPTED_DIR:-$HOME/Vault.encrypted}"
+
+# --- Helpers -----------------------------------------------------------------
+fail()    { echo "❌ $*" >&2; exit 1; }
+info()    { echo "ℹ️  $*"; }
+success() { echo "✅ $*"; }
+trap 'fail "Unexpected error (line ${LINENO})."' ERR
+
+require_cmd() { command -v "$1" >/dev/null 2>&1 || fail "Missing dependency: $1"; }
+
+iso_now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
+
+ensure_git_identity() {
+  local cur_name cur_email
+  cur_name="$(git config user.name || true)"
+  cur_email="$(git config user.email || true)"
+
+  if [ -z "$cur_name" ] && [ -n "${GIT_USER_NAME:-}" ]; then
+    git config user.name "$GIT_USER_NAME"
+  fi
+  if [ -z "$cur_email" ] && [ -n "${GIT_USER_EMAIL:-}" ]; then
+    git config user.email "$GIT_USER_EMAIL"
+  fi
+
+  # Re-read after potential set
+  cur_name="$(git config user.name || true)"
+  cur_email="$(git config user.email || true)"
+  [ -n "$cur_name" ] && [ -n "$cur_email" ] || \
+    fail "Git identity missing. Set GIT_USER_NAME and GIT_USER_EMAIL or configure git globally."
+}
+
+ensure_remote() {
+  if git remote get-url origin >/dev/null 2>&1; then
+    return 0
+  fi
+  [ -n "${GIT_REMOTE_URL:-}" ] || fail "No 'origin' remote and GIT_REMOTE_URL is not set."
+  info "Adding remote 'origin' → ${GIT_REMOTE_URL}"
+  git remote add origin "$GIT_REMOTE_URL"
+}
+
+current_branch() {
+  git rev-parse --abbrev-ref HEAD 2>/dev/null
+}
+
+ensure_branch() {
+  local br
+  br="$(current_branch || true)"
+  if [ -z "$br" ] || [ "$br" = "HEAD" ]; then
+    info "No active branch detected; creating 'main'"
+    git checkout -b main
+  fi
+}
+
+ensure_upstream() {
+  local br
+  br="$(current_branch)"
+  if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
+    return 0
+  fi
+  info "No upstream set for ${br}; will set upstream to origin/${br} on first push."
+}
+
+has_changes() {
+  # true if there are staged or unstaged changes or untracked files
+  ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]
+}
+
+# --- Pre-checks --------------------------------------------------------------
+require_cmd git
+[ -d "${ENCRYPTED_DIR}" ] || fail "Encrypted directory not found: ${ENCRYPTED_DIR}"
+
+# Prevent accidental use in the decrypted mount dir
+case "${ENCRYPTED_DIR}" in
+  *"/Vault") fail "ENCRYPTED_DIR points to decrypted mount. Use the encrypted path (…/Vault.encrypted)." ;;
+esac
+
+cd "${ENCRYPTED_DIR}"
+
+# Must be a git repo
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  fail "Not a Git repository: ${ENCRYPTED_DIR}. Run 'git init' first (see README)."
+fi
+
+ensure_git_identity
+ensure_remote
+ensure_branch
+ensure_upstream
+
+# --- Commit ------------------------------------------------------------------
+if has_changes; then
+  info "Staging changes…"
+  git add -A
+
+  # Build commit message
+  COMMIT_MSG="${1:-}"
+  if [ -z "${COMMIT_MSG}" ]; then
+    COMMIT_MSG="sync: update vault ($(iso_now))"
+  fi
+
+  info "Committing…"
+  if [ "${GIT_SIGN:-}" = "true" ]; then
+    git commit -S -m "${COMMIT_MSG}" || info "Nothing to commit (after staging)."
+  else
+    git commit -m "${COMMIT_MSG}" || info "Nothing to commit (after staging)."
+  fi
+else
+  info "No changes detected. Nothing to commit."
+fi
+
+# --- Push --------------------------------------------------------------------
+BRANCH="$(current_branch)"
+if ! git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
+  info "Pushing and setting upstream → origin/${BRANCH}"
+  git push -u origin "${BRANCH}"
+else
+  info "Pushing to upstream…"
+  git push
+fi
+
+success "Sync complete on branch '${BRANCH}'."

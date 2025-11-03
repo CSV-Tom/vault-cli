@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# vault-uninstall – remove the installed vault CLI bundle
+# Usage:
+#   sudo vault uninstall
+#   (or) sudo /usr/local/share/vault/vault-uninstall
+
+SHARE_DIR="/usr/local/share/vault"
+BIN_LINK="/usr/local/bin/vault"
+COMPLETION_FILE="/usr/local/share/bash-completion/completions/vault"
+
+fail()    { echo "❌ $*" >&2; exit 1; }
+info()    { echo "ℹ️  $*"; }
+success() { echo "✅ $*"; }
+
+[ "$(id -u)" -eq 0 ] || fail "Please run this script with sudo or as root."
+
+info "Uninstalling vault CLI bundle…"
+
+if [ -L "${BIN_LINK}" ] || [ -f "${BIN_LINK}" ]; then
+  info "→ Removing ${BIN_LINK}"
+  rm -f "${BIN_LINK}"
+else
+  info "→ No symlink at ${BIN_LINK}"
+fi
+
+if [ -d "${SHARE_DIR}" ]; then
+  info "→ Removing ${SHARE_DIR}"
+  rm -rf "${SHARE_DIR}"
+else
+  info "→ Bundle directory not found: ${SHARE_DIR}"
+fi
+
+if [ -f "${COMPLETION_FILE}" ]; then
+  info "→ Removing bash completion: ${COMPLETION_FILE}"
+  rm -f "${COMPLETION_FILE}"
+else
+  info "→ Bash completion not found: ${COMPLETION_FILE}"
+fi
+
+success "Vault CLI successfully uninstalled."
