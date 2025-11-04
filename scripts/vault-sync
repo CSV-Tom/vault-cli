@@ -90,6 +90,12 @@ case "${ENCRYPTED_DIR}" in
   *"/Vault") fail "ENCRYPTED_DIR points to decrypted mount. Use the encrypted path (…/Vault.encrypted)." ;;
 esac
 
+# Safety check: Ensure vault is unmounted before sync
+VAULT_DIR="${VAULT_DIR:-$HOME/Vault}"
+if mountpoint -q "$VAULT_DIR" 2>/dev/null; then
+  fail "Vault is currently mounted at ${VAULT_DIR}. Unmount first with 'vault toggle' for safe sync."
+fi
+
 cd "${ENCRYPTED_DIR}"
 
 # Must be a git repo

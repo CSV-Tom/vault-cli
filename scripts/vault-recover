@@ -54,6 +54,7 @@ Notes:
   - Store backups in a secure, separate location  
   - Never share or version control master key backups
   - The vault will be unmounted during recovery operations
+  - Use 'vault recover backup' to create secure master key backups
 EOF
 }
 
@@ -87,9 +88,16 @@ backup_master_key() {
   
   chmod 600 "${backup_path}"
   
+  # Validate backup integrity
+  if ! grep -q "Creator.*gocryptfs" "${backup_path}" 2>/dev/null; then
+    fail "Backup validation failed - invalid gocryptfs config format"
+  fi
+  
   success "Master key backup created: ${backup_path}"
+  success "✓ Backup integrity validated"
   success "Store this file in a secure location separate from your vault!"
-  warn "This backup contains your encrypted master key - keep it safe!"
+  warn "⚠️  This backup contains your encrypted master key - keep it safe!"
+  warn "⚠️  For high security: encrypt backup with GPG/age"
 }
 
 restore_master_key() {
@@ -120,8 +128,9 @@ restore_master_key() {
   success "Master key restored from backup"
   info "Testing vault access..."
   
-  # Test mount to verify restoration
-  if gocryptfs -q "${ENCRYPTED_DIR}" "${VAULT_DIR}" <<< "test" 2>/dev/null; then
+  # Test mount to verify restoration (secure password input)
+  info "Please enter your password to verify restoration:"
+  if gocryptfs -q "${ENCRYPTED_DIR}" "${VAULT_DIR}" 2>/dev/null; then
     # Unmount test mount
     fusermount -u "${VAULT_DIR}" 2>/dev/null || fusermount3 -u "${VAULT_DIR}" 2>/dev/null || true
     success "Vault restoration successful - access verified"
@@ -156,6 +165,8 @@ change_password() {
   fi
 }
 
+
+
 verify_vault() {
   local config_file="${ENCRYPTED_DIR}/gocryptfs.conf"
   
@@ -178,7 +189,8 @@ verify_vault() {
     info "Vault is currently mounted - testing access"
   else
     info "Testing mount capability..."
-    if echo "test" | gocryptfs -q "${ENCRYPTED_DIR}" "${VAULT_DIR}" 2>/dev/null; then
+    info "Please enter your password to test mount:"
+    if gocryptfs -q "${ENCRYPTED_DIR}" "${VAULT_DIR}" 2>/dev/null; then
       success "Vault mounts successfully"
       fusermount -u "${VAULT_DIR}" 2>/dev/null || fusermount3 -u "${VAULT_DIR}" 2>/dev/null || true
     else
@@ -213,6 +225,7 @@ case "${ACTION}" in
   change-password|passwd)
     change_password
     ;;
+
   verify|check)
     verify_vault
     ;;

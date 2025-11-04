@@ -1,455 +1,251 @@
-# Vault CLI - Encrypted File Storage with Git Integration
+# Vault CLI - gocryptfs Integration with Git Versioning
 
-A secure and lightweight solution for encrypted file storage with automated Git versioning using gocryptfs.
+Professional CLI wrapper for gocryptfs with automated Git synchronization and comprehensive recovery capabilities.
 
 ## Quick Start
 
 ```bash
-# 1. Install dependencies and setup
+# Prerequisites and installation
 sudo apt install gocryptfs
 ./vault install
 
-# 2. Initialize encrypted vault
+# Vault initialization
 mkdir -p ~/Vault.encrypted ~/Vault
 gocryptfs -init ~/Vault.encrypted
 
-# 3. Start using your vault
-vault toggle                    # Mount/unmount vault
-vault status                    # Check mount status
-vault sync "Initial commit"     # Sync changes to Git
-vault help                      # Show all available commands
+# Operations
+vault toggle                    # Mount/unmount (work ONLY in $VAULT_DIR)
+vault sync "message"            # Commit and synchronize changes
+vault recover backup            # Create master key backup
 ```
+
+> ⚠️ **Critical:** Always edit files in the **mounted plaintext directory** (`$VAULT_DIR`, default `~/Vault`).
+> Do **not** put plaintext files directly into `$ENCRYPTED_DIR` (default `~/Vault.encrypted`).
 
 ---
 
-## Vault CLI
+## Installation & CLI Interface
 
-### Installation
-
-Install the unified vault CLI system-wide:
+### System Installation
 
 ```bash
-./vault install
+./vault install                 # Install system-wide
+# or: sudo ./scripts/vault-install
 ```
 
-or alternatively:
+### Command Reference
 
-```bash
-sudo ./scripts/vault-install
-```
+| Command | Function |
+|---------|----------|
+| `vault toggle` | Mount/unmount operations |
+| `vault sync [message]` | Commit and push encrypted changes |
+| `vault status` | Display mount status |
+| `vault recover <action>` | Master key backup/recovery operations |
+| `vault help` | Display command reference |
 
-This creates a single `vault` command with subcommands:
+**Features:** Bash completion, automated Git integration, comprehensive error handling.
 
-```bash
-vault help        # Show all commands
-vault toggle      # Mount/unmount the vault
-vault sync        # Commit & push changes
-vault status      # Check mount status
-vault recover     # Master key backup and recovery
-vault uninstall   # Remove installation
-```
+### Development & Automation
 
-The installation also includes **bash completion** for tab completion:
-
-```bash
-vault <TAB><TAB>    # Shows available subcommands
-vault sync <TAB>    # Shows commit message templates
-```
-
-Verify installation:
-
-```bash
-vault help
-```
-
-### Usage
-
-#### Mount/Unmount Operations
-
-```bash
-vault toggle      # Mount if unmounted, unmount if mounted
-vault status      # Check current mount status
-```
-
-#### Git Synchronization
-
-```bash
-vault sync "Update notes"    # Commit with custom message
-vault sync                   # Auto-generated timestamp message
-```
-
-### Local Development
-
-For development, you can run scripts directly:
-
-```bash
-./vault help                # Use local wrapper
-./scripts/vault-toggle      # Direct script execution
-```
-
-Enable tab completion for local development:
-
-```bash
-source completions/vault.bash    # Load completion in current shell
-```
-
-#### Optional: Systemd Integration
-
-To mount automatically on login:
-
-```bash
-mkdir -p ~/.config/systemd/user/
-cp config/vault.mount.service.example ~/.config/systemd/user/vault.mount.service
-systemctl --user enable vault.mount.service
-systemctl --user start vault.mount.service
-```
+**Local Development:** Execute scripts directly via `./vault` or `./scripts/vault-*`
+**Shell Completion:** `source completions/vault.bash`
+**Systemd Integration:** Copy `config/vault.mount.service.example` to `~/.config/systemd/user/`
 
 ---
 
 ## Git Integration
 
-Initialize Git repository for your encrypted vault:
+**Repository Setup:**
 
 ```bash
-cd ~/Vault.encrypted
-git init
-git remote add origin <your-repository-url>
+cd ~/Vault.encrypted && git init && git remote add origin <repository-url>
 ```
 
-Sync changes safely (only encrypted data is committed):
+**Workflow:** All Git operations target encrypted data exclusively. Plaintext never leaves the local system.
 
 ```bash
-# Work on decrypted files
-vault toggle
-cd ~/Vault
-echo "# Notes" > notes.md
-vault toggle
-
-# Commit encrypted data automatically
-vault sync "Add notes"
-```
-
-> Git tracks **only encrypted data**. No plaintext ever leaves your system.
-
----
-
-## Environment Variables
-
-The vault system supports customization via environment variables:
-
-* `VAULT_DIR` - Path to mount point (default: `~/Vault`)
-* `ENCRYPTED_DIR` - Path to encrypted data (default: `~/Vault.encrypted`)
-* `GIT_REMOTE_URL` - Git remote URL for sync operations
-* `GIT_USER_NAME`, `GIT_USER_EMAIL` - Git identity
-* `GIT_SIGN=true` - Enable GPG signing for commits
-
-Example:
-
-```bash
-export ENCRYPTED_DIR="$HOME/MyDocs.encrypted"
-export VAULT_DIR="$HOME/MyDocs"
-vault toggle
-vault sync "Update documentation"
+vault toggle        # Mount for editing
+# ... edit files in ~/Vault ...
+vault toggle        # Unmount (use: 'fusermount -u ~/Vault' or 'fusermount3 -u ~/Vault')
+vault sync "msg"    # Commit encrypted changes
 ```
 
 ---
 
-## Project Structure
+## Automated Synchronization
 
-### Repository Structure
+**⚠️ Important:** Automated sync only works when vault is **unmounted**. Never run `vault sync` on mounted vaults.
 
-| Path | Description |
-|------|-------------|
-| `vault` | Main CLI wrapper |
-| `scripts/` | Subcommand implementations |
-| `config/` | Configuration files |
-| `completions/` | Shell completion scripts |
+### Auto-Sync Script
 
-### Runtime Directories
+Create `/usr/local/bin/vault-auto-sync.sh`:
 
-| Purpose        | Default Path          | Description                      |
-| -------------- | --------------------- | -------------------------------- |
-| Encrypted data | `~/Vault.encrypted/`  | Git repository (safe to version) |
-| Decrypted view | `~/Vault/`            | Temporary working directory      |
-| Installation   | `/usr/local/share/vault` | Installed CLI bundle location |
+```bash
+#!/bin/bash
+# Automated vault synchronization with safety checks
+
+VAULT_DIR="${VAULT_DIR:-$HOME/Vault}"
+ENCRYPTED_DIR="${ENCRYPTED_DIR:-$HOME/Vault.encrypted}"
+
+# Exit if vault is mounted (safety check)
+if mountpoint -q "$VAULT_DIR" 2>/dev/null; then
+    echo "$(date): Vault is mounted - skipping auto-sync for safety"
+    exit 0
+fi
+
+# Exit if no changes detected
+cd "$ENCRYPTED_DIR" || exit 1
+if git diff --quiet && git diff --cached --quiet; then
+    echo "$(date): No changes detected - skipping sync"
+    exit 0
+fi
+
+# Perform sync with timestamp
+echo "$(date): Starting auto-sync..."
+if /usr/local/bin/vault sync "Auto-sync $(date +%Y-%m-%d %H:%M)"; then
+    echo "$(date): Auto-sync completed successfully"
+else
+    echo "$(date): Auto-sync failed - check manually" >&2
+    exit 1
+fi
+```
+
+Make script executable:
+
+```bash
+sudo chmod +x /usr/local/bin/vault-auto-sync.sh
+```
+
+### Crontab Setup
+
+```bash
+# Create log directory
+mkdir -p ~/logs/vault
+
+# Add to crontab (crontab -e):
+
+# Smart sync with change detection and logging
+*/30 * * * * /usr/local/bin/vault-auto-sync.sh >> ~/logs/vault/sync.log 2>&1
+
+# Weekly cleanup of old logs
+0 1 * * 0 find ~/logs/vault -name "*.log" -mtime +30 -delete
+```
+
+---
+
+## Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `VAULT_DIR` | `~/Vault` | Mount point path |
+| `ENCRYPTED_DIR` | `~/Vault.encrypted` | Encrypted data path |
+| `GIT_REMOTE_URL` | - | Remote repository URL |
+| `GIT_USER_NAME`, `GIT_USER_EMAIL` | - | Git identity |
+| `GIT_SIGN` | `false` | Enable GPG commit signing |
+
+---
+
+## Architecture
+
+| Component | Path | Function |
+|-----------|------|----------|
+| **CLI Wrapper** | `vault` | Main command interface |
+| **Subcommands** | `scripts/` | Individual operation implementations |
+| **Configuration** | `config/` | Service definitions, examples |
+| **Completion** | `completions/` | Shell integration |
+| **Encrypted Data** | `~/Vault.encrypted/` | Git-versioned encrypted storage |
+| **Mount Point** | `~/Vault/` | Temporary plaintext access |
 
 ---
 
 ## Master Key Recovery
 
-The vault system provides comprehensive master key recovery capabilities to protect against password loss and ensure long-term data accessibility.
+**Principle:** gocryptfs uses a 256-bit AES master key stored in `gocryptfs.conf`, encrypted with your password. Password loss equals permanent data loss without key backup.
 
-### Overview
+### Component Architecture
 
-Your gocryptfs vault uses a master key stored in the `gocryptfs.conf` file, encrypted with your password. If you lose your password, you lose access to your data permanently. The recovery system helps prevent this by providing secure backup and restoration mechanisms.
+| Component | Function | Recovery Method |
+|-----------|----------|-----------------|
+| `gocryptfs.conf` | Encrypted master key container | Can be recreated from raw master key |
+| Master Key | 8×8-char hex AES-256 key (hyphen-separated) | Must be backed up separately/offline |
+| `gocryptfs.diriv` | Per-directory initialization vector | **Must be preserved** with data; loss causes data loss in that directory |
 
-#### Understanding the Master Key
+### Operations
 
-The master key is the ultimate decryption secret for your vault - a 256-bit AES key represented as 64 hexadecimal characters. Understanding the components helps with recovery:
+| Command | Function |
+|---------|----------|
+| `vault recover backup [path]` | Create encrypted master key backup |
+| `vault recover restore <file>` | Restore configuration from backup |
+| `vault recover change-password` | Update password, backup configuration |
+| `vault recover verify` | Validate vault integrity |
 
-| Component | Purpose | Recoverable |
-|-----------|---------|-------------|
-| `gocryptfs.conf` | Contains master key encrypted with your password | ✅ Can be recreated from master key |
-| Master Key | 64 hex chars (256-bit AES) - the true decryption secret | ❌ Must be backed up separately |
-| `gocryptfs.diriv` | Per-directory initialization vectors | ✅ Regenerated automatically |
+**Critical:** Backups of `gocryptfs.conf` are protected by your **current password**.
+After changing the password, create **new backups**. Old backups remain decryptable with the **old** password.
 
-The master key allows **complete access to all encrypted data** without password verification, making it both your ultimate backup solution and your most sensitive security asset.
+### Recovery Procedures
 
-### Recovery Operations
+**Restoration:** `vault recover restore <backup>` + password from backup creation
+**Password Change:** Automated backup, unmount, re-encryption, verification
+**Verification:** Configuration integrity, mount capability, access permissions
 
-```bash
-vault recover backup                    # Create master key backup
-vault recover backup ~/secure/backup   # Custom backup location
-vault recover restore ~/backup/file    # Restore from backup
-vault recover change-password          # Change vault password
-vault recover verify                   # Verify vault integrity
-```
+### Direct gocryptfs Operations
 
-#### Creating Master Key Backups
+**Configuration Recreation:** `gocryptfs -init -masterkey <xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx> <vault-path>`
+**Vault Information:** `gocryptfs -info <vault-path>` (shows configuration details)
+**Change Password:** `gocryptfs -passwd <vault-path>`
+**Manual Operations:** `gocryptfs <encrypted> <mount>` / `fusermount -u <mount>` or `fusermount3 -u <mount>`
 
-```bash
-# Quick backup with timestamp
-vault recover backup
+**⚠️ Security:** Master key visible in process list (`ps`). Use `echo <key> | gocryptfs -masterkey=stdin` for secure input.
 
-# Custom backup location
-vault recover backup ~/secure-storage/vault-key-$(date +%Y%m%d).backup
+### Backup Strategy
 
-# The backup contains your encrypted master key
-# Store it separately from your vault data
-```
+**Automation:** `crontab` with `vault recover backup` for scheduled key backups
+**Distribution:** External storage, encrypted cloud, offline media, password managers
+**Validation:** Regular restoration testing in isolated environments
 
-**Important:** Master key backups are encrypted with your **current password**. If you change your password, create new backups.
+### Common Scenarios
 
-#### Restoring from Backup
+| Scenario | Solution | Prerequisite |
+|----------|----------|--------------|
+| **Forgotten Password** | `vault recover restore <backup>` | Master key backup |
+| **Corrupted Config** | `vault recover restore <backup>` + `verify` | Master key backup |
+| **System Migration** | `vault recover backup` → `restore` | Backup transport |
+| **No Backup Available** | Data permanently inaccessible | - |
 
-If you forget your password or the `gocryptfs.conf` file becomes corrupted:
+### Security Framework
 
-```bash
-# First, try to recover/remember your password
-# The backup is encrypted with your password
+**Backup Security:** Never version control backups, separate storage from vault data, additional encryption (GPG/age)
+**Password Policy:** Strong passwords, password manager integration, documented recovery procedures
+**Emergency Access:** Multiple backup variants, trusted contact procedures, documented locations
 
-# Restore the master key configuration
-vault recover restore ~/path/to/backup.backup
+### Shell Completion Security Note
 
-# Test access
-vault toggle
-```
+For convenience, shell completion auto-discovers subcommands in several local paths.
+In shared or untrusted environments, ensure those paths are trusted to avoid subcommand shadowing.
 
-#### Changing Passwords Safely
+### Diagnostics
 
-```bash
-vault recover change-password
-```
-
-This operation:
-
-1. Unmounts the vault for safety
-2. Backs up your current configuration
-3. Prompts for old and new passwords
-4. Updates the master key encryption
-
-**After changing passwords:**
-
-* Create new master key backups
-* Update any stored passwords
-* Old backups remain valid with the old password
-
-#### Verifying Vault Health
-
-```bash
-vault recover verify
-```
-
-Checks:
-
-* Configuration file integrity
-* Mount capability
-* Encrypted directory structure
-* Access permissions
-
-### Advanced: Direct gocryptfs Recovery
-
-For advanced users or emergency situations where the vault CLI is unavailable, you can work directly with gocryptfs commands:
-
-#### Recreating Configuration from Master Key
-
-If you have the raw master key (64 hexadecimal characters) but lost your `gocryptfs.conf`:
-
-```bash
-# Recreate configuration with existing master key
-gocryptfs -init -masterkey <YOUR-64-CHAR-MASTER-KEY> ~/Vault.encrypted
-
-# Example with placeholder key (64 hex characters):
-gocryptfs -init -masterkey a1b2c3d4e5f67890abcdef1234567890fedcba0987654321a1b2c3d4e5f67890 ~/Vault.encrypted
-```
-
-You'll be prompted to set a new password to encrypt the master key.
-
-#### Extracting Master Key from Existing Vault
-
-To view or backup your current master key:
-
-```bash
-# Display master key from existing configuration
-gocryptfs -info ~/Vault.encrypted
-```
-
-Output example:
-
-```text
-Decryption succeeded, master key: a1b2c3d4e5f67890abcdef1234567890fedcba0987654321...
-```
-
-**⚠️ Security Warning:** The master key grants complete access to your encrypted data. Store it securely and separately from your vault.
-
-#### Manual Mount/Unmount
-
-```bash
-# Manual mount (alternative to vault toggle)
-mkdir -p ~/Vault
-gocryptfs ~/Vault.encrypted ~/Vault
-
-# Manual unmount
-fusermount -u ~/Vault
-```
-
-### Backup Strategy Recommendations
-
-#### 1. Regular Automated Backups
-
-```bash
-# Add to crontab for weekly backups (run 'crontab -e' to edit)
-0 2 * * 0 /usr/local/bin/vault recover backup ~/secure/vault-key-$(date +\%Y\%m\%d).backup
-```
-
-#### 2. Multiple Storage Locations
-
-Store backups in different locations:
-
-* External drive or USB stick
-* Cloud storage (encrypted folder)
-* Print on paper (for ultimate fallback)
-* Secure password manager notes
-
-#### 3. Test Recovery Process
-
-Periodically test your backup:
-
-```bash
-# Verify backup file exists and is readable
-ls -la ~/secure/vault-*.backup
-
-# Test restore in a temporary location (advanced)
-mkdir /tmp/test-vault
-cp ~/secure/vault-key-backup.backup /tmp/test-vault/gocryptfs.conf
-gocryptfs -info /tmp/test-vault  # Should show vault info
-rm -rf /tmp/test-vault
-```
-
-### Recovery Scenarios
-
-#### Scenario 1: Forgotten Password
-
-1. **If you have a master key backup:**
-
-   ```bash
-   vault recover restore ~/secure/vault-backup.backup
-   # Enter the password you used when creating the backup
-   vault toggle  # Test access
-   ```
-
-2. **If you have no backup:**
-
-   * Data is permanently inaccessible
-   * This is why regular backups are critical
-
-#### Scenario 2: Corrupted gocryptfs.conf
-
-```bash
-# Restore from backup
-vault recover restore ~/secure/vault-backup.backup
-
-# Verify restoration
-vault recover verify
-```
-
-#### Scenario 3: System Migration
-
-Moving to a new system:
-
-```bash
-# On old system: ensure you have recent backup
-vault recover backup ~/migration/vault-key.backup
-
-# On new system: after installing vault-cli
-vault recover restore ~/migration/vault-key.backup
-vault toggle  # Test access
-```
-
-### Security Considerations
-
-#### Master Key Backup Security
-
-* **Never commit backups to Git** - they contain your encrypted master key
-* Store backups separate from your encrypted vault data
-* Use strong, unique passwords
-* Consider encrypting backup files with additional tools (GPG, age)
-
-#### Password Management
-
-* Use a password manager to store vault passwords
-* Consider using a passphrase instead of a complex password
-* Document your backup locations securely
-* Share recovery information with trusted contacts if needed
-
-#### Emergency Access Planning
-
-For critical data, consider:
-
-```bash
-# Create multiple backups with different passwords
-vault recover change-password    # Set emergency password
-vault recover backup ~/emergency/vault-backup-emergency.backup
-vault recover change-password    # Return to normal password
-vault recover backup ~/regular/vault-backup-normal.backup
-```
-
-### Troubleshooting
-
-#### Common Issues
-
-##### "Backup file not found"
-
-```bash
-# Check backup file exists and is readable
-ls -la ~/path/to/backup.backup
-file ~/path/to/backup.backup  # Should show text file
-```
-
-##### "Cannot verify vault access"
-
-* Password may be incorrect
-* Backup file may be corrupted
-* Try different backup files
-* Check vault directory permissions
-
-##### "Config file corrupted"
-
-```bash
-# Check if backup exists before restoration
-vault recover verify  # Shows current status
-vault recover restore ~/secure/backup.backup
-```
+| Error | Causes | Resolution |
+|-------|--------|------------|
+| **Backup not found** | Missing file, permissions | Verify path, check access rights |
+| **Access verification failed** | Wrong password, corrupted backup | Alternative backups, password verification |
+| **Config corruption** | Filesystem issues, incomplete writes | `vault recover restore <backup>` |
 
 ---
 
-## Security Guidelines
+## Security Model
 
-* **Critical**: Always maintain secure master key backups
-* Never version or share your master key backups
-* Always use a **strong, unique password**
-* Backup both your encrypted data **and** the master key
-* Test your recovery process regularly
-* Unmount your Vault after work sessions
-* The file `gocryptfs.conf` is **safe to commit** (contains only encrypted config data)
-* Store master key backups separately from vault data
+### Dual Backup Architecture
+
+| Backup Type | Command | Content | Storage Policy |
+|-------------|---------|---------|----------------|
+| **Master Key** | `vault recover backup` | Encrypted key configuration | Offline, separate from vault |
+| **Encrypted Data** | `git push` / `rsync` | All encrypted files + metadata | Git repository or external |
+
+### Security Requirements
+
+**Access Control:** Strong passwords, regular unmounting, session management
+**Key Management:** Master key backups separate from data, no version control of keys
+**Data Integrity:** Regular backup testing, verification procedures
+**Safe Operations:** `gocryptfs.conf` safe for Git, plaintext never transmitted
+**Configuration Security:** For high-security environments, store config file separately from encrypted data to prevent brute-force attacks

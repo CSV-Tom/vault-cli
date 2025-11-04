@@ -40,6 +40,19 @@ fi
 
 # --- Main --------------------------------------------------------------------
 if mountpoint -q "${VAULT_DIR}"; then
+  # Check for open files before unmounting
+  if lsof "${VAULT_DIR}" >/dev/null 2>&1; then
+    echo "⚠️  Warning: Files still open in vault:"
+    lsof "${VAULT_DIR}" 2>/dev/null | head -10 || true
+    echo
+    read -p "Continue with unmount anyway? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      info "Unmount cancelled. Close all files first."
+      exit 1
+    fi
+  fi
+
   info "🔒 Unmounting Vault at → ${VAULT_DIR}"
   if "${FUSERMOUNT_BIN}" -u -- "${VAULT_DIR}"; then
     success "Vault successfully unmounted from → ${VAULT_DIR}"
