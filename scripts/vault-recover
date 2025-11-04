@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# vault-recover - Master key recovery operations for gocryptfs vault
+# Usage:
+#   vault recover backup [path]         # Create master key backup
+#   vault recover restore <backup>      # Restore from master key backup
+#   vault recover change-password       # Change vault password
+#   vault recover verify               # Verify vault integrity
+
+ENCRYPTED_DIR="${ENCRYPTED_DIR:-$HOME/Vault.encrypted}"
+VAULT_DIR="${VAULT_DIR:-$HOME/Vault}"
+
+# --- Helper functions --------------------------------------------------------
+fail()    { echo "❌ $*" >&2; exit 1; }
+info()    { echo "ℹ️  $*"; }
+success() { echo "✅ $*"; }
+warn()    { echo "⚠️  $*"; }
+
+trap 'fail "Unexpected error (line ${LINENO})."' ERR
+
+require_cmd() { command -v "$1" >/dev/null 2>&1 || fail "Missing dependency: $1"; }
+
+is_mounted() { mountpoint -q "${VAULT_DIR}" 2>/dev/null; }
+
+unmount_if_needed() {
+  if is_mounted; then
+    warn "Vault is currently mounted. Unmounting for safety..."
+    vault toggle || fail "Could not unmount vault"
+  fi
+}
+
+show_help() {
+  cat <<EOF
+vault recover - Master key recovery operations
+
+Usage:
+  vault recover backup [path]         Create master key backup
+  vault recover restore <backup>      Restore from master key backup  
+  vault recover change-password       Change vault password
+  vault recover verify               Verify vault integrity
+  vault recover help                 Show this help
+
+Examples:
+  vault recover backup                          # Backup to default location
+  vault recover backup ~/vault-key-$(date +%Y%m%d).backup
+  vault recover restore ~/vault-key-backup.backup
+  vault recover change-password                 # Interactive password change
+  vault recover verify                          # Check vault health
+
+Notes:
+  - Master key backups are encrypted with your vault password
+  - Store backups in a secure, separate location  
+  - Never share or version control master key backups
+  - The vault will be unmounted during recovery operations
+EOF
+}
+
+backup_master_key() {
+  local backup_path="${1:-}"
+  local config_file="${ENCRYPTED_DIR}/gocryptfs.conf"
+  
+  [ -d "${ENCRYPTED_DIR}" ] || fail "Encrypted directory not found: ${ENCRYPTED_DIR}"
+  [ -f "${config_file}" ] || fail "gocryptfs config not found: ${config_file}"
+  
+  if [ -z "${backup_path}" ]; then
+    backup_path="${HOME}/vault-masterkey-$(date +%Y%m%d-%H%M%S).backup"
+  fi
+  
+  # Ensure vault is unmounted for safety
+  unmount_if_needed
+  
+  info "Creating master key backup..."
+  info "Source: ${config_file}"
+  info "Backup: ${backup_path}"
+  
+  # Create backup with metadata
+  {
+    echo "# gocryptfs Master Key Backup"
+    echo "# Created: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    echo "# Source: ${ENCRYPTED_DIR}"
+    echo "# Warning: Keep this file secure and private!"
+    echo ""
+    cat "${config_file}"
+  } > "${backup_path}"
+  
+  chmod 600 "${backup_path}"
+  
+  success "Master key backup created: ${backup_path}"
+  success "Store this file in a secure location separate from your vault!"
+  warn "This backup contains your encrypted master key - keep it safe!"
+}
+
+restore_master_key() {
+  local backup_path="${1:-}"
+  local config_file="${ENCRYPTED_DIR}/gocryptfs.conf"
+  
+  [ -n "${backup_path}" ] || fail "Backup file path required"
+  [ -f "${backup_path}" ] || fail "Backup file not found: ${backup_path}"
+  [ -d "${ENCRYPTED_DIR}" ] || fail "Encrypted directory not found: ${ENCRYPTED_DIR}"
+  
+  # Ensure vault is unmounted
+  unmount_if_needed
+  
+  # Backup current config
+  if [ -f "${config_file}" ]; then
+    local current_backup="${config_file}.backup-$(date +%Y%m%d-%H%M%S)"
+    info "Backing up current config to: ${current_backup}"
+    cp "${config_file}" "${current_backup}"
+  fi
+  
+  info "Restoring master key from backup..."
+  info "Backup: ${backup_path}"
+  info "Target: ${config_file}"
+  
+  # Extract config from backup (skip comment lines)
+  grep -v '^#' "${backup_path}" | grep -v '^$' > "${config_file}"
+  
+  success "Master key restored from backup"
+  info "Testing vault access..."
+  
+  # Test mount to verify restoration
+  if gocryptfs -q "${ENCRYPTED_DIR}" "${VAULT_DIR}" <<< "test" 2>/dev/null; then
+    # Unmount test mount
+    fusermount -u "${VAULT_DIR}" 2>/dev/null || fusermount3 -u "${VAULT_DIR}" 2>/dev/null || true
+    success "Vault restoration successful - access verified"
+  else
+    warn "Could not verify vault access. Check your password or backup file."
+  fi
+}
+
+change_password() {
+  local config_file="${ENCRYPTED_DIR}/gocryptfs.conf"
+  
+  [ -d "${ENCRYPTED_DIR}" ] || fail "Encrypted directory not found: ${ENCRYPTED_DIR}"
+  [ -f "${config_file}" ] || fail "gocryptfs config not found: ${config_file}"
+  
+  # Ensure vault is unmounted
+  unmount_if_needed
+  
+  info "Changing vault password..."
+  warn "You will need to enter your current password and set a new one"
+  
+  # Backup current config
+  local backup="${config_file}.backup-$(date +%Y%m%d-%H%M%S)"
+  cp "${config_file}" "${backup}"
+  info "Current config backed up to: ${backup}"
+  
+  if gocryptfs -passwd "${ENCRYPTED_DIR}"; then
+    success "Password changed successfully"
+    info "Previous config saved as: ${backup}"
+    warn "Update any saved master key backups with the new password!"
+  else
+    fail "Password change failed"
+  fi
+}
+
+verify_vault() {
+  local config_file="${ENCRYPTED_DIR}/gocryptfs.conf"
+  
+  [ -d "${ENCRYPTED_DIR}" ] || fail "Encrypted directory not found: ${ENCRYPTED_DIR}"
+  [ -f "${config_file}" ] || fail "gocryptfs config not found: ${config_file}"
+  
+  info "Verifying vault integrity..."
+  
+  # Check config file format
+  if ! grep -q "Creator.*gocryptfs" "${config_file}" 2>/dev/null; then
+    warn "Config file may be corrupted or invalid"
+  else
+    success "Config file format appears valid"
+  fi
+  
+  # Test mount capability
+  local was_mounted=false
+  if is_mounted; then
+    was_mounted=true
+    info "Vault is currently mounted - testing access"
+  else
+    info "Testing mount capability..."
+    if echo "test" | gocryptfs -q "${ENCRYPTED_DIR}" "${VAULT_DIR}" 2>/dev/null; then
+      success "Vault mounts successfully"
+      fusermount -u "${VAULT_DIR}" 2>/dev/null || fusermount3 -u "${VAULT_DIR}" 2>/dev/null || true
+    else
+      fail "Cannot mount vault - check password or vault integrity"
+    fi
+  fi
+  
+  # Check encrypted directory structure
+  local file_count
+  file_count=$(find "${ENCRYPTED_DIR}" -type f | wc -l)
+  info "Encrypted directory contains ${file_count} files"
+  
+  success "Vault verification complete"
+  if [ "${was_mounted}" = "false" ]; then
+    info "Use 'vault toggle' to mount your vault"
+  fi
+}
+
+# --- Pre-checks --------------------------------------------------------------
+require_cmd gocryptfs
+
+ACTION="${1:-help}"
+shift || true
+
+case "${ACTION}" in
+  backup)
+    backup_master_key "$@"
+    ;;
+  restore)
+    restore_master_key "$@"
+    ;;
+  change-password|passwd)
+    change_password
+    ;;
+  verify|check)
+    verify_vault
+    ;;
+  help|--help|-h|"")
+    show_help
+    ;;
+  *)
+    fail "Unknown action: ${ACTION}. Use 'vault recover help' for usage."
+    ;;
+esac

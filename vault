@@ -52,6 +52,7 @@ Commands:
   toggle      Mount or unmount the encrypted vault
   sync        Commit and push encrypted changes
   status      Show vault mount status
+  recover     Master key backup and recovery operations
   uninstall   Remove installed vault bundle
   help        Show this help text
 
@@ -60,6 +61,7 @@ Examples:
   vault toggle
   vault sync "Update notes"
   vault status
+  vault recover backup
   vault uninstall
 EOF
 }

@@ -15,7 +15,7 @@ COMPLETION_DIR="/usr/local/share/bash-completion/completions"
 COMPLETION_SRC="completions/vault.bash"
 
 REQUIRED=(vault vault-toggle vault-sync vault-uninstall)
-OPTIONAL=(vault-status)
+OPTIONAL=(vault-status vault-recover)
 
 fail()    { echo "❌ $*" >&2; exit 1; }
 info()    { echo "ℹ️  $*"; }

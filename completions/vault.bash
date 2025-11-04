@@ -17,7 +17,7 @@ __vault_init_completion() {
 
 # Discover subcommands by scanning bundle + common dirs + local scripts
 __vault_discover_subcommands() {
-  local subs="install uninstall toggle sync status help"
+  local subs="install uninstall toggle sync status recover help"
   local d f sc
   local dirs=( 
     "/usr/local/share/vault"     # installed location
@@ -59,6 +59,11 @@ _vault() {
       # Suggest some lightweight commit message templates
       local templates='"Update notes" "sync: update vault" "docs: edit"'
       COMPREPLY=( $(compgen -W "$templates" -- "$cur") )
+      ;;
+    recover)
+      # Suggest recovery subcommands
+      local recovery_actions="backup restore change-password verify help"
+      COMPREPLY=( $(compgen -W "$recovery_actions" -- "$cur") )
       ;;
     *)
       COMPREPLY=()
