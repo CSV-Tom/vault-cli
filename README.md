@@ -47,9 +47,9 @@ vault recover backup            # Create master key backup
 
 ### Development & Automation
 
-**Local Development:** Execute scripts directly via `./vault` or `./scripts/vault-*`
-**Shell Completion:** `source completions/vault.bash`
-**Systemd Integration:** Copy `config/vault.mount.service.example` to `~/.config/systemd/user/`
+- **Local Development:** Execute scripts directly via `./vault` or `./scripts/vault-*`
+- **Shell Completion:** `source completions/vault.bash`
+- **Systemd Integration:** Copy `config/vault.mount.service.example` to `~/.config/systemd/user/`
 
 ---
 
@@ -184,24 +184,24 @@ After changing the password, create **new backups**. Old backups remain decrypta
 
 ### Recovery Procedures
 
-**Restoration:** `vault recover restore <backup>` + password from backup creation
-**Password Change:** Automated backup, unmount, re-encryption, verification
-**Verification:** Configuration integrity, mount capability, access permissions
+- **Restoration:** `vault recover restore <backup>` + password from backup creation
+- **Password Change:** Automated backup, unmount, re-encryption, verification
+- **Verification:** Configuration integrity, mount capability, access permissions
 
 ### Direct gocryptfs Operations
 
-**Configuration Recreation:** `gocryptfs -init -masterkey <xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx> <vault-path>`
-**Vault Information:** `gocryptfs -info <vault-path>` (shows configuration details)
-**Change Password:** `gocryptfs -passwd <vault-path>`
-**Manual Operations:** `gocryptfs <encrypted> <mount>` / `fusermount -u <mount>` or `fusermount3 -u <mount>`
+- **Configuration Recreation:** `gocryptfs -init -masterkey <xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx> <vault-path>`
+- **Vault Information:** `gocryptfs -info <vault-path>` (shows configuration details)
+- **Change Password:** `gocryptfs -passwd <vault-path>`
+- **Manual Operations:** `gocryptfs <encrypted> <mount>` / `fusermount -u <mount>` or `fusermount3 -u <mount>`
 
 **⚠️ Security:** Master key visible in process list (`ps`). Use `echo <key> | gocryptfs -masterkey=stdin` for secure input.
 
 ### Backup Strategy
 
-**Automation:** `crontab` with `vault recover backup` for scheduled key backups
-**Distribution:** External storage, encrypted cloud, offline media, password managers
-**Validation:** Regular restoration testing in isolated environments
+- **Automation:** `crontab` with `vault recover backup` for scheduled key backups
+- **Distribution:** External storage, encrypted cloud, offline media, password managers
+- **Validation:** Regular restoration testing in isolated environments
 
 ### Common Scenarios
 
@@ -214,9 +214,9 @@ After changing the password, create **new backups**. Old backups remain decrypta
 
 ### Security Framework
 
-**Backup Security:** Never version control backups, separate storage from vault data, additional encryption (GPG/age)
-**Password Policy:** Strong passwords, password manager integration, documented recovery procedures
-**Emergency Access:** Multiple backup variants, trusted contact procedures, documented locations
+- **Backup Security:** Never version control backups, separate storage from vault data, additional encryption (GPG/age)
+- **Password Policy:** Strong passwords, password manager integration, documented recovery procedures
+- **Emergency Access:** Multiple backup variants, trusted contact procedures, documented locations
 
 ### Shell Completion Security Note
 
@@ -244,8 +244,8 @@ In shared or untrusted environments, ensure those paths are trusted to avoid sub
 
 ### Security Requirements
 
-**Access Control:** Strong passwords, regular unmounting, session management
-**Key Management:** Master key backups separate from data, no version control of keys
-**Data Integrity:** Regular backup testing, verification procedures
-**Safe Operations:** `gocryptfs.conf` safe for Git, plaintext never transmitted
-**Configuration Security:** For high-security environments, store config file separately from encrypted data to prevent brute-force attacks
+- **Access Control:** Strong passwords, regular unmounting, session management
+- **Key Management:** Master key backups separate from data, no version control of keys
+- **Data Integrity:** Regular backup testing, verification procedures
+- **Safe Operations:** `gocryptfs.conf` safe for Git, plaintext never transmitted
+- **Configuration Security:** For high-security environments, store config file separately from encrypted data to prevent brute-force attacks
